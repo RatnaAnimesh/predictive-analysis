@@ -1,0 +1,19 @@
+# Virtual Environment
+geo_venv/
+
+# Data and Model Files
+data/
+temp_data/
+partial_results_*.json
+model_state.json
+*.log
+*.csv
+*.zip
+*.tar
+
+# Python cache
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
