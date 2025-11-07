@@ -30,50 +30,40 @@ except nltk.downloader.DownloadError:
     print("Downloading VADER sentiment lexicon...")
     nltk.download('vader_lexicon')
 
-# Define the entities to track
-TRACKED_ENTITIES = [
-    # Countries
-    "Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Antigua and Barbuda", "Argentina", "Armenia", "Australia", "Austria", "Azerbaijan",
-    "Bahamas", "Bahrain", "Bangladesh", "Barbados", "Belarus", "Belgium", "Belize", "Benin", "Bhutan", "Bolivia", "Bosnia and Herzegovina", "Botswana", "Brazil", "Brunei", "Bulgaria", "Burkina Faso", "Burundi",
-    "Cabo Verde", "Cambodia", "Cameroon", "Canada", "Central African Republic", "Chad", "Chile", "China", "Colombia", "Comoros", "Congo", "Costa Rica", "Côte d'Ivoire", "Croatia", "Cuba", "Cyprus", "Czech Republic",
-    "Denmark", "Djibouti", "Dominica", "Dominican Republic",
-    "Ecuador", "Egypt", "El Salvador", "Equatorial Guinea", "Eritrea", "Estonia", "Eswatini", "Ethiopia",
-    "Fiji", "Finland", "France",
-    "Gabon", "Gambia", "Georgia", "Germany", "Ghana", "Greece", "Grenada", "Guatemala", "Guinea", "Guinea-Bissau", "Guyana",
-    "Haiti", "Holy See", "Honduras", "Hungary",
-    "Iceland", "India", "Indonesia", "Iran", "Iraq", "Ireland", "Israel", "Italy",
-    "Jamaica", "Japan", "Jordan",
-    "Kazakhstan", "Kenya", "Kiribati", "Kuwait", "Kyrgyzstan",
-    "Laos", "Latvia", "Lebanon", "Lesotho", "Liberia", "Libya", "Liechtenstein", "Lithuania", "Luxembourg",
-    "Madagascar", "Malawi", "Malaysia", "Maldives", "Mali", "Malta", "Marshall Islands", "Mauritania", "Mauritius", "Mexico", "Micronesia", "Moldova", "Monaco", "Mongolia", "Montenegro", "Morocco", "Mozambique", "Myanmar",
-    "Namibia", "Nauru", "Nepal", "Netherlands", "New Zealand", "Nicaragua", "Niger", "Nigeria", "North Korea", "North Macedonia", "Norway",
-    "Oman",
-    "Pakistan", "Palau", "Palestine", "Panama", "Papua New Guinea", "Paraguay", "Peru", "Philippines", "Poland", "Portugal",
-    "Qatar",
-    "Romania", "Russia", "Rwanda",
-    "Saint Kitts and Nevis", "Saint Lucia", "Saint Vincent and the Grenadines", "Samoa", "San Marino", "Sao Tome and Principe", "Saudi Arabia", "Senegal", "Serbia", "Seychelles", "Sierra Leone", "Singapore", "Slovakia", "Slovenia", "Solomon Islands", "Somalia", "South Africa", "South Korea", "South Sudan", "Spain", "Sri Lanka", "Sudan", "Suriname", "Sweden", "Switzerland", "Syria",
-    "Taiwan", "Tajikistan", "Tanzania", "Thailand", "Timor-Leste", "Togo", "Tonga", "Trinidad and Tobago", "Tunisia", "Turkey", "Turkmenistan", "Tuvalu",
-    "Uganda", "Ukraine", "United Arab Emirates", "United Kingdom", "United States", "Uruguay", "Uzbekistan",
-    "Vanuatu", "Venezuela", "Vietnam",
-    "Yemen",
-    "Zambia", "Zimbabwe", "Kosovo",
+import spacy
+from collections import Counter
 
-    # S&P 500 Companies (selection)
-    "3M", "Abbott Laboratories", "AbbVie", "Accenture", "Adobe", "Aflac", "Agilent Technologies", "Air Products & Chemicals", "Alphabet", "Altria Group", "Amazon", "American Electric Power", "American Express", "Amgen", "Analog Devices", "Apollo Global Management", "Apple", "Applied Materials", "Arch Capital Group", "Arthur J. Gallagher", "AT&T", "Autozone", "Axon Enterprise", "Bank of America", "Becton, Dickinson", "Berkshire Hathaway", "BlackRock", "Blackstone", "Booking Holdings", "Boston Scientific", "Bristol-Myers Squibb", "Broadcom", "Bunge Global", "BXP", "C.H. Robinson", "Cadence Design Systems", "Capital One", "Caterpillar", "Cencora", "Chipotle Mexican Grill", "Cisco Systems", "Citigroup", "CME Group", "Costco Wholesale", "Digital Realty Trust", "Ecolab", "Eli Lilly", "Elevance Health", "Emerson Electric", "Eog Resources", "Fiserv", "Fortinet", "Freeport-Mcmoran", "Ge Vernova", "Globe Life", "Goldman Sachs", "Hca Healthcare", "Hilton Worldwide Holdings", "Home Depot", "Honeywell International", "Howmet Aerospace", "Illinois Tool Works", "Intercontinental Exchange", "Intuit", "Intuitive Surgical", "Johnson & Johnson", "JPMorgan Chase", "Kinder Morgan", "Kkr & Co", "Lockheed Martin", "Lowe's Companies", "Marsh & Mclennan", "Mastercard", "Merck & Co", "Meta Platforms", "Micron Technology", "Molson Coors Beverage", "Motorola Solutions", "Netflix", "Nextra Energy", "Nike", "Norfolk Southern", "Northrop Grumman", "Nxp Semiconductors", "O'reilly Automotive", "Oneok", "Oracle", "Palo Alto Networks", "Paypal", "Pepsico", "Pfizer", "Philip Morris International", "Palantir Technologies", "Prologis", "Quanta Services", "Republic Services", "Roper Technologies", "Salesforce", "Servicenow", "S&P Global", "Stanley Black & Decker", "Stryker", "T-Mobile Us", "Tesla", "TJX Companies", "Travelers Companies", "Thermo Fisher Scientific", "Uber Technologies", "Union Pacific", "Viatris", "Visa", "Vistra", "Walmart", "Waste Management", "Welltower", "Wells Fargo", "Williams Companies", "Zoetis",
+# --- NLP Model Setup ---
+SPACY_MODEL_NAME = "en_core_web_sm"
 
-    # Other Key Entities
+# --- New Configuration ---
+# A smaller, focused list of critical entities for stable tracking
+CORE_ENTITIES = [
+    # Key World Leaders & Countries
     "Joe Biden", "Vladimir Putin", "Xi Jinping",
-    "ExxonMobil", "Saudi Aramco",
-    "TSMC", "Samsung", "Intel", "Nvidia",
-    "Boeing",
-    "United Nations", "World Health Organization",
+    "China", "Russia", "United States", "USA", "Ukraine", "Taiwan", "Israel", "Iran", "Saudi Arabia", "United Kingdom", "Germany", "France", "Japan", "India",
 
-    # Key Cities
-    "Kyiv", "Moscow", "Beijing", "Washington DC"
+    # Key Companies & Financial Institutions
+    "Apple", "Microsoft", "Google", "Amazon", "Nvidia", "Tesla", "Meta Platforms",
+    "TSMC", "Samsung", "Intel",
+    "JPMorgan Chase", "Bank of America", "Goldman Sachs",
+    "ExxonMobil", "Saudi Aramco",
+
+    # Key Organizations
+    "United Nations", "NATO", "OPEC", "World Health Organization", "Federal Reserve",
+
+    # Key Locations
+    "Kyiv", "Moscow", "Beijing", "Washington DC",
 ]
 
-# Pre-compile regex for efficiency
-ENTITY_PATTERNS = {entity: re.compile(r'\b' + re.escape(entity) + r'\b', re.IGNORECASE) for entity in TRACKED_ENTITIES}
+# Pre-compile regex for the core, high-signal entities for speed
+CORE_ENTITY_PATTERNS = {entity: re.compile(r'\b' + re.escape(entity) + r'\b', re.IGNORECASE) for entity in CORE_ENTITIES}
+
+# --- Dynamic Discovery Configuration ---
+# An entity must appear this many times in a batch to be added to the discovered list
+DISCOVERY_THRESHOLD = 10 
+# We will ignore these noisy or irrelevant spaCy entity types
+IGNORED_ENTITY_LABELS = ['DATE', 'TIME', 'PERCENT', 'MONEY', 'QUANTITY', 'ORDINAL', 'CARDINAL']
 
 # --- State Management Functions ---
 def load_model_state():
@@ -84,20 +74,18 @@ def load_model_state():
     else:
         state = {}
 
-    # Ensure all tracked features are initialized
-    if "interval_article_count" not in state:
-        state["interval_article_count"] = {"count": 0, "mean": 0.0, "m2": 0.0}
+    # Initialize top-level structure
+    if "interval_article_count" not in state: state["interval_article_count"] = {"count": 0, "mean": 0.0, "m2": 0.0}
+    if "core_metrics" not in state: state["core_metrics"] = {}
+    if "discovered_metrics" not in state: state["discovered_metrics"] = {}
     
-    if "entity_metrics" not in state:
-        state["entity_metrics"] = {}
-
-    for entity in TRACKED_ENTITIES:
-        if entity not in state["entity_metrics"]:
-            state["entity_metrics"][entity] = {
+    # Ensure all core entities are initialized
+    for entity in CORE_ENTITIES:
+        if entity not in state["core_metrics"]:
+            state["core_metrics"][entity] = {
                 "counts": {"count": 0, "mean": 0.0, "m2": 0.0},
                 "sentiment": {"count": 0, "mean": 0.0, "m2": 0.0}
             }
-    
     return state
 
 def save_model_state(state):
@@ -115,38 +103,51 @@ def update_stats(stats, new_value):
 
 def get_std_dev(stats):
     """Calculates the standard deviation from the given stats dictionary."""
-    if stats['count'] < 2:
-        return 0.0
+    if stats['count'] < 2: return 0.0
     variance = stats['m2'] / (stats['count'] - 1)
     return math.sqrt(variance)
 
 def extract_title_from_xml(xml_string):
     """Parses the GDELT Extras XML to find the page title."""
     try:
-        if not xml_string or pd.isna(xml_string):
-            return ""
+        if not xml_string or pd.isna(xml_string): return ""
         root = ET.fromstring(f"<root>{xml_string}</root>")
         title_element = root.find(".//PAGE_TITLE")
-        if title_element is not None and title_element.text:
-            return title_element.text
-    except ET.ParseError:
-        return ""
+        if title_element is not None and title_element.text: return title_element.text
+    except ET.ParseError: return ""
     return ""
+
+def is_valid_entity(ent):
+    """Helper function to filter out noisy entities."""
+    if ent.label_ in IGNORED_ENTITY_LABELS: return False
+    if len(ent.text) < 3: return False # Ignore very short entities
+    return True
 
 # --- Main Analyzer Logic ---
 from tqdm import tqdm
 
-# --- Configuration ---
 BATCH_SIZE_MINUTES = 15 # Process data in 15-minute chunks (one file at a time)
 
 def run_historical_analyzer():
     """
-    Runs the historical analysis in manageable batches to build the statistical baseline.
+    Runs the historical analysis using a hybrid approach:
+    1. Fast regex matching for a small list of CORE entities.
+    2. Slower, dynamic NER discovery for new, emerging entities.
     This process is resumable.
     """
+    # --- Model and State Initialization ---
     os.makedirs(TEMP_DIR, exist_ok=True)
     state = load_model_state()
     sid = SentimentIntensityAnalyzer()
+
+    # Download and load spaCy model
+    try:
+        nlp = spacy.load(SPACY_MODEL_NAME)
+        print(f"Successfully loaded spaCy model '{SPACY_MODEL_NAME}'.")
+    except OSError:
+        print(f"Spacy model '{SPACY_MODEL_NAME}' not found. Downloading...")
+        spacy.cli.download(SPACY_MODEL_NAME)
+        nlp = spacy.load(SPACY_MODEL_NAME)
 
     # --- Resume Logic ---
     last_processed_str = state.get("last_processed_timestamp")
@@ -157,18 +158,14 @@ def run_historical_analyzer():
         start_time = START_TIME
         print(f"--- Starting Historical Analyzer from {start_time} to {END_TIME} ---")
 
-    # The main loop iterates through the date range in batches
+    # --- Main Processing Loop ---
     batch_start_time = start_time
     while batch_start_time < END_TIME:
         batch_end_time = batch_start_time + timedelta(minutes=BATCH_SIZE_MINUTES)
-        if batch_end_time > END_TIME:
-            batch_end_time = END_TIME
+        if batch_end_time > END_TIME: batch_end_time = END_TIME
 
         print(f"\n--- Processing Batch: {batch_start_time} to {batch_end_time} ---")
-        
         total_intervals_in_batch = (batch_end_time - batch_start_time) // timedelta(minutes=15)
-        
-        # Use tqdm for a progress bar within each batch
         interval_iterator = tqdm(range(total_intervals_in_batch), desc=f"Batch starting {batch_start_time.strftime('%Y-%m-%d %H:%M')}")
 
         current_time = batch_start_time
@@ -183,44 +180,66 @@ def run_historical_analyzer():
 
             try:
                 subprocess.run(["curl", "-L", "-s", "-f", "-o", temp_zip_path, url], check=True)
-
-                with zipfile.ZipFile(temp_zip_path, 'r') as zip_ref:
-                    zip_ref.extractall(TEMP_DIR)
+                with zipfile.ZipFile(temp_zip_path, 'r') as zip_ref: zip_ref.extractall(TEMP_DIR)
                 
                 articles_df = pd.read_csv(temp_csv_path, sep='\t', header=None, dtype=str, encoding='latin1')
-                df_processed = articles_df.iloc[:, [19, 21, 23, -1]]
-                df_processed.columns = ['Organizations', 'Persons', 'Locations', 'Extras']
+                df_processed = articles_df.iloc[:, [3, 19, 21, 23, -1]] # Add column 3 for article text
+                df_processed.columns = ['ArticleText', 'Organizations', 'Persons', 'Locations', 'Extras']
 
-                # --- Feature Extraction ---
                 update_stats(state['interval_article_count'], len(df_processed))
 
-                for entity, pattern in ENTITY_PATTERNS.items():
+                # --- 1. Core Entity Processing (Fast) ---
+                for entity, pattern in CORE_ENTITY_PATTERNS.items():
                     mask = (
                         df_processed['Organizations'].str.contains(pattern, na=False) |
                         df_processed['Persons'].str.contains(pattern, na=False) |
                         df_processed['Locations'].str.contains(pattern, na=False)
                     )
                     entity_mentions_df = df_processed[mask]
-                    entity_count = len(entity_mentions_df)
-                    update_stats(state['entity_metrics'][entity]['counts'], entity_count)
-
+                    update_stats(state['core_metrics'][entity]['counts'], len(entity_mentions_df))
+                    
                     avg_sentiment = 0.0
                     if not entity_mentions_df.empty:
                         titles = entity_mentions_df['Extras'].apply(extract_title_from_xml)
                         sentiments = titles.apply(lambda x: sid.polarity_scores(x)['compound'])
                         valid_sentiments = sentiments[sentiments != 0.0]
-                        if not valid_sentiments.empty:
-                            avg_sentiment = valid_sentiments.mean()
-                    update_stats(state['entity_metrics'][entity]['sentiment'], avg_sentiment)
+                        if not valid_sentiments.empty: avg_sentiment = valid_sentiments.mean()
+                    update_stats(state['core_metrics'][entity]['sentiment'], avg_sentiment)
 
-            except subprocess.CalledProcessError:
-                pass # This is normal, just means no file for this 15-min interval
+                # --- 2. Dynamic Entity Discovery (Slower) ---
+                # Use a counter to find the most common entities in this batch
+                discovered_entity_counts = Counter()
+                all_titles = df_processed['Extras'].apply(extract_title_from_xml)
+                
+                # Process documents in batches with spaCy for efficiency
+                for doc in nlp.pipe(all_titles, disable=["parser", "lemmatizer"]):
+                    for ent in doc.ents:
+                        if is_valid_entity(ent):
+                            discovered_entity_counts[ent.text.strip()] += 1
+                
+                # Gatekeeping: Only add/update stats for significant discovered entities
+                for entity, count in discovered_entity_counts.items():
+                    if count >= DISCOVERY_THRESHOLD and entity not in CORE_ENTITIES:
+                        # This is a significant new or existing discovered entity
+                        if entity not in state["discovered_metrics"]:
+                            # Initialize stats for a brand new entity
+                            state["discovered_metrics"][entity] = {
+                                "counts": {"count": 0, "mean": 0.0, "m2": 0.0},
+                                "sentiment": {"count": 0, "mean": 0.0, "m2": 0.0}
+                            }
+                        
+                        # Since we already counted it, we can just update the stats
+                        update_stats(state["discovered_metrics"][entity]['counts'], count)
+                        # Note: A full sentiment analysis for discovered entities would be too slow here.
+                        # We can add this later if needed. For now, we focus on discovery and counts.
+                        update_stats(state["discovered_metrics"][entity]['sentiment'], 0.0)
+
+            except subprocess.CalledProcessError: pass
             except (IndexError, FileNotFoundError, zipfile.BadZipFile, pd.errors.ParserError) as e:
                 tqdm.write(f"  Skipping interval {timestamp_str} due to processing error: {e}")
             except Exception as e:
                 tqdm.write(f"An unexpected error occurred at interval {timestamp_str}: {e}")
             finally:
-                # CRITICAL: Clean up temp files after each interval
                 if os.path.exists(temp_zip_path): os.remove(temp_zip_path)
                 if os.path.exists(temp_csv_path): os.remove(temp_csv_path)
 
@@ -231,7 +250,7 @@ def run_historical_analyzer():
         state["last_processed_timestamp"] = batch_end_time.isoformat()
         save_model_state(state)
         
-        batch_start_time = batch_end_time # Move to the next batch
+        batch_start_time = batch_end_time
 
     print("\n--- Historical Analysis Finished ---")
     print("Final model state saved.")
