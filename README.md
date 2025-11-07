@@ -34,16 +34,16 @@ To get this project up and running on your local machine, follow these steps:
     ```
 
 3.  **Install dependencies:**
-    Install the required Python packages. You might need to create a `requirements.txt` file first if it doesn't exist.
+    Install the required Python packages.
     ```bash
-    pip install pandas numpy nltk gdeltdoc tqdm lxml
+    pip install pandas numpy nltk gdeltdoc tqdm lxml spacy
     ```
-    *(Note: `lxml` is for `xml.etree.ElementTree` parsing, `gdeltdoc` is for GDELT API, `tqdm` for progress bars)*
 
-4.  **Download NLTK data:**
-    The project uses NLTK's VADER lexicon for sentiment analysis.
+4.  **Download NLP Models:**
+    The project uses NLTK for sentiment and spaCy for entity recognition.
     ```bash
     python -c "import nltk; nltk.download('vader_lexicon')"
+    python -m spacy download en_core_web_sm
     ```
 
 ## Usage
@@ -52,19 +52,12 @@ The project operates in two main phases: Historical Analysis (to build a baselin
 
 ### Phase 1: Historical Analysis (Building the Baseline)
 
-This phase processes historical GDELT data to build a statistical model of "normal" news activity.
+This phase processes historical GDELT data to build a statistical model of "normal" news activity and discover new entities.
 
-1.  **Run the data download and processing launcher:**
-    This will start multiple parallel processes to download and analyze GDELT data for each year (2015-2024 by default). This process can take a very long time and download a lot of data.
+1.  **Run the historical analyzer:**
+    This single script now handles the entire process. It will download and analyze GDELT data sequentially. This process is resumable but will take a very long time.
     ```bash
-    python launcher.py
-    ```
-    *(Note: This will create `partial_results_YYYY.json` files for each year and download raw GDELT data into the `temp_data` directory, which is automatically cleaned up.)*
-
-2.  **Combine the historical results:**
-    Once all the launcher processes are complete, run the reducer to combine the yearly statistics into a single `model_state.json` file.
-    ```bash
-    python reducer.py
+    python historical_analyzer.py
     ```
 
 ### Phase 2: Online Anomaly Detection
