@@ -130,17 +130,13 @@ BATCH_SIZE_MINUTES = 15 # Process data in 15-minute chunks (one file at a time)
 
 def run_historical_analyzer():
     """
-    Runs the historical analysis using a hybrid approach:
-    1. Fast regex matching for a small list of CORE entities.
-    2. Slower, dynamic NER discovery for new, emerging entities.
-    This process is resumable.
+    Runs the historical analysis using a hybrid approach and a single, resumable progress bar.
     """
     # --- Model and State Initialization ---
     os.makedirs(TEMP_DIR, exist_ok=True)
     state = load_model_state()
     sid = SentimentIntensityAnalyzer()
 
-    # Download and load spaCy model
     try:
         nlp = spacy.load(SPACY_MODEL_NAME)
         print(f"Successfully loaded spaCy model '{SPACY_MODEL_NAME}'.")
@@ -149,7 +145,7 @@ def run_historical_analyzer():
         spacy.cli.download(SPACY_MODEL_NAME)
         nlp = spacy.load(SPACY_MODEL_NAME)
 
-    # --- Resume Logic ---
+    # --- Resume and Progress Bar Logic ---
     last_processed_str = state.get("last_processed_timestamp")
     if last_processed_str:
         start_time = datetime.fromisoformat(last_processed_str)
@@ -158,20 +154,15 @@ def run_historical_analyzer():
         start_time = START_TIME
         print(f"--- Starting Historical Analyzer from {start_time} to {END_TIME} ---")
 
-    # --- Main Processing Loop ---
-    batch_start_time = start_time
-    while batch_start_time < END_TIME:
-        batch_end_time = batch_start_time + timedelta(minutes=BATCH_SIZE_MINUTES)
-        if batch_end_time > END_TIME: batch_end_time = END_TIME
+    total_intervals = (END_TIME - START_TIME) // timedelta(minutes=15)
+    completed_intervals = (start_time - START_TIME) // timedelta(minutes=15)
+    intervals_per_batch = (timedelta(minutes=BATCH_SIZE_MINUTES) // timedelta(minutes=15))
 
-        print(f"\n--- Processing Batch: {batch_start_time} to {batch_end_time} ---")
-        total_intervals_in_batch = (batch_end_time - batch_start_time) // timedelta(minutes=15)
-        interval_iterator = tqdm(range(total_intervals_in_batch), desc=f"Batch starting {batch_start_time.strftime('%Y-%m-%d %H:%M')}")
-
-        current_time = batch_start_time
-        for _ in interval_iterator:
+    with tqdm(total=total_intervals, initial=completed_intervals, desc="Overall Progress") as overall_progress:
+        current_time = start_time
+        while current_time < END_TIME:
             timestamp_str = current_time.strftime('%Y%m%d%H%M%S')
-            interval_iterator.set_postfix_str(f"Interval: {timestamp_str}")
+            overall_progress.set_postfix_str(f"Current Date: {current_time.date()}")
 
             file_name = f"{timestamp_str}.gkg.csv.zip"
             url = f"http://data.gdeltproject.org/gdeltv2/{file_name}"
@@ -183,21 +174,16 @@ def run_historical_analyzer():
                 with zipfile.ZipFile(temp_zip_path, 'r') as zip_ref: zip_ref.extractall(TEMP_DIR)
                 
                 articles_df = pd.read_csv(temp_csv_path, sep='\t', header=None, dtype=str, encoding='latin1')
-                df_processed = articles_df.iloc[:, [3, 19, 21, 23, -1]] # Add column 3 for article text
+                df_processed = articles_df.iloc[:, [3, 19, 21, 23, -1]]
                 df_processed.columns = ['ArticleText', 'Organizations', 'Persons', 'Locations', 'Extras']
 
                 update_stats(state['interval_article_count'], len(df_processed))
 
-                # --- 1. Core Entity Processing (Fast) ---
+                # Core Entity Processing
                 for entity, pattern in CORE_ENTITY_PATTERNS.items():
-                    mask = (
-                        df_processed['Organizations'].str.contains(pattern, na=False) |
-                        df_processed['Persons'].str.contains(pattern, na=False) |
-                        df_processed['Locations'].str.contains(pattern, na=False)
-                    )
+                    mask = (df_processed['Organizations'].str.contains(pattern, na=False) | df_processed['Persons'].str.contains(pattern, na=False) | df_processed['Locations'].str.contains(pattern, na=False))
                     entity_mentions_df = df_processed[mask]
                     update_stats(state['core_metrics'][entity]['counts'], len(entity_mentions_df))
-                    
                     avg_sentiment = 0.0
                     if not entity_mentions_df.empty:
                         titles = entity_mentions_df['Extras'].apply(extract_title_from_xml)
@@ -206,32 +192,19 @@ def run_historical_analyzer():
                         if not valid_sentiments.empty: avg_sentiment = valid_sentiments.mean()
                     update_stats(state['core_metrics'][entity]['sentiment'], avg_sentiment)
 
-                # --- 2. Dynamic Entity Discovery (Slower) ---
-                # Use a counter to find the most common entities in this batch
+                # Dynamic Entity Discovery
                 discovered_entity_counts = Counter()
                 all_titles = df_processed['Extras'].apply(extract_title_from_xml)
-                
-                # Process documents in batches with spaCy for efficiency
                 for doc in nlp.pipe(all_titles, disable=["parser", "lemmatizer"]):
                     for ent in doc.ents:
                         if is_valid_entity(ent):
                             discovered_entity_counts[ent.text.strip()] += 1
                 
-                # Gatekeeping: Only add/update stats for significant discovered entities
                 for entity, count in discovered_entity_counts.items():
                     if count >= DISCOVERY_THRESHOLD and entity not in CORE_ENTITIES:
-                        # This is a significant new or existing discovered entity
                         if entity not in state["discovered_metrics"]:
-                            # Initialize stats for a brand new entity
-                            state["discovered_metrics"][entity] = {
-                                "counts": {"count": 0, "mean": 0.0, "m2": 0.0},
-                                "sentiment": {"count": 0, "mean": 0.0, "m2": 0.0}
-                            }
-                        
-                        # Since we already counted it, we can just update the stats
+                            state["discovered_metrics"][entity] = {"counts": {"count": 0, "mean": 0.0, "m2": 0.0}, "sentiment": {"count": 0, "mean": 0.0, "m2": 0.0}}
                         update_stats(state["discovered_metrics"][entity]['counts'], count)
-                        # Note: A full sentiment analysis for discovered entities would be too slow here.
-                        # We can add this later if needed. For now, we focus on discovery and counts.
                         update_stats(state["discovered_metrics"][entity]['sentiment'], 0.0)
 
             except subprocess.CalledProcessError: pass
@@ -244,15 +217,18 @@ def run_historical_analyzer():
                 if os.path.exists(temp_csv_path): os.remove(temp_csv_path)
 
             current_time += timedelta(minutes=15)
+            overall_progress.update(1)
 
-        # --- Batch End: Save Progress ---
-        print(f"--- Finished Batch. Saving state... ---")
-        state["last_processed_timestamp"] = batch_end_time.isoformat()
-        save_model_state(state)
-        
-        batch_start_time = batch_end_time
+            # Save progress periodically within the loop
+            if overall_progress.n > 0 and overall_progress.n % intervals_per_batch == 0:
+                tqdm.write(f"\n--- Checkpoint: Saving state at {current_time}... ---")
+                state["last_processed_timestamp"] = current_time.isoformat()
+                save_model_state(state)
 
+    # Final save at the end of the entire process
     print("\n--- Historical Analysis Finished ---")
+    state["last_processed_timestamp"] = END_TIME.isoformat() # Mark as fully complete
+    save_model_state(state)
     print("Final model state saved.")
     print("Done.")
 
