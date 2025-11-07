@@ -103,85 +103,107 @@ def extract_title_from_xml(xml_string):
     return ""
 
 # --- Main Analyzer Logic ---
+from tqdm import tqdm
+
+# --- Configuration ---
+BATCH_SIZE_MINUTES = 15 # Process data in 15-minute chunks (one file at a time)
+
 def run_historical_analyzer():
-    """Runs the anomaly detection loop over a defined historical period."""
-    print(f"--- Starting Historical Analyzer from {START_TIME} to {END_TIME} ---")
+    """
+    Runs the historical analysis in manageable batches to build the statistical baseline.
+    This process is resumable.
+    """
     os.makedirs(TEMP_DIR, exist_ok=True)
     state = load_model_state()
     sid = SentimentIntensityAnalyzer()
-    
-    current_time = START_TIME
-    total_intervals = (END_TIME - START_TIME) // timedelta(minutes=15)
-    processed_count = 0
 
-    while current_time < END_TIME:
-        timestamp_str = current_time.strftime('%Y%m%d%H%M%S')
-        processed_count += 1
-        print(f"\n--- Processing Interval {processed_count}/{total_intervals}: {timestamp_str} ---")
+    # --- Resume Logic ---
+    last_processed_str = state.get("last_processed_timestamp")
+    if last_processed_str:
+        start_time = datetime.fromisoformat(last_processed_str)
+        print(f"--- Resuming Historical Analyzer from {start_time} ---")
+    else:
+        start_time = START_TIME
+        print(f"--- Starting Historical Analyzer from {start_time} to {END_TIME} ---")
 
-        file_name = f"{timestamp_str}.gkg.csv.zip"
-        url = f"http://data.gdeltproject.org/gdeltv2/{file_name}"
-        temp_zip_path = os.path.join(TEMP_DIR, file_name)
-        temp_csv_path = temp_zip_path.replace('.zip', '')
+    # The main loop iterates through the date range in batches
+    batch_start_time = start_time
+    while batch_start_time < END_TIME:
+        batch_end_time = batch_start_time + timedelta(hours=BATCH_SIZE_HOURS)
+        if batch_end_time > END_TIME:
+            batch_end_time = END_TIME
 
-        articles_df = pd.DataFrame()
-        try:
-            # Use curl for robust downloading, -s for silent, -f to fail silently on 404
-            subprocess.run(["curl", "-L", "-s", "-f", "-o", temp_zip_path, url], check=True)
-
-            with zipfile.ZipFile(temp_zip_path, 'r') as zip_ref:
-                zip_ref.extractall(TEMP_DIR)
-            
-            articles_df = pd.read_csv(temp_csv_path, sep='\t', header=None, dtype=str, encoding='latin1')
-            # Select columns after loading the full DataFrame
-            # GDELT GKG 2.0: 19=Organizations, 21=Persons, 23=Locations, -1=Extras (last column)
-            articles_df = articles_df.iloc[:, [19, 21, 23, -1]]
-            articles_df.columns = ['Organizations', 'Persons', 'Locations', 'Extras']
-            print(f"Loaded {len(articles_df)} articles.")
-
-        except subprocess.CalledProcessError:
-            print(f"No data file for {timestamp_str}. This is common. Skipping.")
-        except Exception as e:
-            print(f"Error processing interval {timestamp_str}: {e}")
-        finally:
-            if os.path.exists(temp_zip_path): os.remove(temp_zip_path)
-            if os.path.exists(temp_csv_path): os.remove(temp_csv_path)
-
-        # --- Feature Extraction ---
-        if not articles_df.empty:
-            update_stats(state['interval_article_count'], len(articles_df))
-
-            for entity, pattern in ENTITY_PATTERNS.items():
-                mask = (
-                    articles_df['Organizations'].str.contains(pattern, na=False) |
-                    articles_df['Persons'].str.contains(pattern, na=False) |
-                    articles_df['Locations'].str.contains(pattern, na=False)
-                )
-                entity_mentions_df = articles_df[mask]
-                entity_count = len(entity_mentions_df)
-
-                update_stats(state['entity_metrics'][entity]['counts'], entity_count)
-
-                avg_sentiment = 0.0
-                if not entity_mentions_df.empty:
-                    titles = entity_mentions_df['Extras'].apply(extract_title_from_xml)
-                    sentiments = titles.apply(lambda x: sid.polarity_scores(x)['compound'])
-                    valid_sentiments = sentiments[sentiments != 0.0]
-                    if not valid_sentiments.empty:
-                        avg_sentiment = valid_sentiments.mean()
-                
-                update_stats(state['entity_metrics'][entity]['sentiment'], avg_sentiment)
+        print(f"\n--- Processing Batch: {batch_start_time} to {batch_end_time} ---")
         
-        # Save state periodically
-        if processed_count % 50 == 0:
-            print("--- Checkpoint: Saving model state ---")
-            save_model_state(state)
+        total_intervals_in_batch = (batch_end_time - batch_start_time) // timedelta(minutes=15)
+        
+        # Use tqdm for a progress bar within each batch
+        interval_iterator = tqdm(range(total_intervals_in_batch), desc=f"Batch starting {batch_start_time.strftime('%Y-%m-%d %H:%M')}")
 
-        current_time += timedelta(minutes=15)
+        current_time = batch_start_time
+        for _ in interval_iterator:
+            timestamp_str = current_time.strftime('%Y%m%d%H%M%S')
+            interval_iterator.set_postfix_str(f"Interval: {timestamp_str}")
+
+            file_name = f"{timestamp_str}.gkg.csv.zip"
+            url = f"http://data.gdeltproject.org/gdeltv2/{file_name}"
+            temp_zip_path = os.path.join(TEMP_DIR, file_name)
+            temp_csv_path = temp_zip_path.replace('.zip', '')
+
+            try:
+                subprocess.run(["curl", "-L", "-s", "-f", "-o", temp_zip_path, url], check=True)
+
+                with zipfile.ZipFile(temp_zip_path, 'r') as zip_ref:
+                    zip_ref.extractall(TEMP_DIR)
+                
+                articles_df = pd.read_csv(temp_csv_path, sep='\t', header=None, dtype=str, encoding='latin1')
+                df_processed = articles_df.iloc[:, [19, 21, 23, -1]]
+                df_processed.columns = ['Organizations', 'Persons', 'Locations', 'Extras']
+
+                # --- Feature Extraction ---
+                update_stats(state['interval_article_count'], len(df_processed))
+
+                for entity, pattern in ENTITY_PATTERNS.items():
+                    mask = (
+                        df_processed['Organizations'].str.contains(pattern, na=False) |
+                        df_processed['Persons'].str.contains(pattern, na=False) |
+                        df_processed['Locations'].str.contains(pattern, na=False)
+                    )
+                    entity_mentions_df = df_processed[mask]
+                    entity_count = len(entity_mentions_df)
+                    update_stats(state['entity_metrics'][entity]['counts'], entity_count)
+
+                    avg_sentiment = 0.0
+                    if not entity_mentions_df.empty:
+                        titles = entity_mentions_df['Extras'].apply(extract_title_from_xml)
+                        sentiments = titles.apply(lambda x: sid.polarity_scores(x)['compound'])
+                        valid_sentiments = sentiments[sentiments != 0.0]
+                        if not valid_sentiments.empty:
+                            avg_sentiment = valid_sentiments.mean()
+                    update_stats(state['entity_metrics'][entity]['sentiment'], avg_sentiment)
+
+            except subprocess.CalledProcessError:
+                pass # This is normal, just means no file for this 15-min interval
+            except (IndexError, FileNotFoundError, zipfile.BadZipFile, pd.errors.ParserError) as e:
+                tqdm.write(f"  Skipping interval {timestamp_str} due to processing error: {e}")
+            except Exception as e:
+                tqdm.write(f"An unexpected error occurred at interval {timestamp_str}: {e}")
+            finally:
+                # CRITICAL: Clean up temp files after each interval
+                if os.path.exists(temp_zip_path): os.remove(temp_zip_path)
+                if os.path.exists(temp_csv_path): os.remove(temp_csv_path)
+
+            current_time += timedelta(minutes=15)
+
+        # --- Batch End: Save Progress ---
+        print(f"--- Finished Batch. Saving state... ---")
+        state["last_processed_timestamp"] = batch_end_time.isoformat()
+        save_model_state(state)
+        
+        batch_start_time = batch_end_time # Move to the next batch
 
     print("\n--- Historical Analysis Finished ---")
-    print("Finalizing and saving model state...")
-    save_model_state(state)
+    print("Final model state saved.")
     print("Done.")
 
 if __name__ == "__main__":
