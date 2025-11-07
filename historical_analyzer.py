@@ -129,7 +129,7 @@ def run_historical_analyzer():
     # The main loop iterates through the date range in batches
     batch_start_time = start_time
     while batch_start_time < END_TIME:
-        batch_end_time = batch_start_time + timedelta(hours=BATCH_SIZE_HOURS)
+        batch_end_time = batch_start_time + timedelta(minutes=BATCH_SIZE_MINUTES)
         if batch_end_time > END_TIME:
             batch_end_time = END_TIME
 
