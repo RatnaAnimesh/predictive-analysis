@@ -9,6 +9,7 @@ import re
 import spacy
 import xml.etree.ElementTree as ET
 from tqdm import tqdm
+import time
 
 # --- Configuration ---
 # Pass 1: Discover and Log Entities
@@ -109,16 +110,25 @@ def run_pass1_discovery():
             temp_zip_path = os.path.join(TEMP_DIR, file_name)
             temp_csv_path = temp_zip_path.replace('.zip', '')
 
+            # --- Performance Profiling Timers ---
+            timings = {}
+            t0 = time.time()
+
             try:
+                # --- 1. Download ---
                 subprocess.run(["curl", "-L", "-s", "-f", "-o", temp_zip_path, url], check=True)
+                t1 = time.time()
+                timings["download"] = t1 - t0
+
+                # --- 2. Read and Prepare Data ---
                 with zipfile.ZipFile(temp_zip_path, 'r') as zip_ref:
                     zip_ref.extractall(TEMP_DIR)
-                
                 articles_df = pd.read_csv(temp_csv_path, sep='\t', header=None, dtype=str, encoding='latin1')
-                # We only need the 'Extras' column containing the XML with the title
                 titles = articles_df.iloc[:, -1].dropna().apply(extract_title_from_xml)
+                t2 = time.time()
+                timings["read"] = t2 - t1
 
-                # --- Entity Extraction and Logging ---
+                # --- 3. NLP Processing ---
                 discovered_entities = []
                 for doc in nlp.pipe(titles, disable=["parser", "lemmatizer"]):
                     for ent in doc.ents:
@@ -128,10 +138,20 @@ def run_pass1_discovery():
                                 ent.text.strip().replace(",", ""), # Basic cleaning
                                 ent.label_
                             ])
+                t3 = time.time()
+                timings["nlp"] = t3 - t2
                 
-                # Append discoveries to the log file
+                # --- 4. Write to Log ---
                 if discovered_entities:
                     pd.DataFrame(discovered_entities).to_csv(ENTITY_LOG_FILE, mode='a', header=False, index=False)
+                t4 = time.time()
+                timings["write"] = t4 - t3
+                
+                # --- Print Timings ---
+                total_time = t4 - t0
+                timing_str = f"Total: {total_time:.2f}s | " + " ".join([f"{k}: {v:.2f}s" for k, v in timings.items()])
+                overall_progress.set_postfix_str(timing_str)
+
 
             except subprocess.CalledProcessError:
                 pass # This is normal, just means no file for this 15-min interval
