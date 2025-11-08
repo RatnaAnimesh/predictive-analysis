@@ -78,6 +78,13 @@ def run_pass1_discovery():
             f.write("timestamp,entity_text,entity_label\n")
 
     # --- NLP Model Loading ---
+    # Tell spaCy to prefer the GPU
+    print("Attempting to enable GPU acceleration...")
+    if spacy.prefer_gpu():
+        print("GPU acceleration enabled!")
+    else:
+        print("GPU not available, using CPU.")
+
     try:
         nlp = spacy.load(SPACY_MODEL_NAME)
         print(f"Successfully loaded spaCy model '{SPACY_MODEL_NAME}'.")
