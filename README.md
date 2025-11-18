@@ -1,98 +1,122 @@
 # Geopolitical Predictor
 
-This project implements a system for geopolitical anomaly detection and aims to extend into predictive and corroboration analysis based on news data. It processes large volumes of GDELT news data to identify unusual patterns in entity mentions and sentiment.
+This project implements a real-time pipeline to ingest geopolitical event data from the GDELT Project and construct a knowledge graph. This graph enables sophisticated analysis of the relationships and interactions between global actors.
 
 ## Table of Contents
 
 - [Project Goals](#project-goals)
+- [Architecture](#architecture)
 - [Setup](#setup)
 - [Usage](#usage)
-- [Data Sources](#data-sources)
 - [Project Structure](#project-structure)
 
 ## Project Goals
 
-1.  **Anomaly Detection:** Figure out if something is showing up in the news more to then check what's happening. Alerts if Z-score of occurrence is higher than 3.
-2.  **Predictive Analysis:** Look at the latest news and try to figure out what *could* happen and assign an exact probability to the event. Should display major geopolitical or financial events occurring with probabilities more than 50%.
-3.  **Corroboration Analysis:** Say I tell the model something may happen, its goal is to then assign the event an exact probability of occurring based on all of its training.
+The ultimate aim is to leverage the knowledge graph to achieve the following:
+
+1.  **Anomaly Detection:** Identify unusual spikes in the frequency or nature of events involving specific actors or locations.
+2.  **Predictive Analysis:** Analyze event sequences and actor interactions to forecast the probability of future events.
+3.  **Corroboration Analysis:** Assess the probability of a user-supplied hypothetical event based on historical patterns in the graph.
+
+## Architecture
+
+The project uses a real-time, producer-consumer architecture:
+
+1.  **Producer (`historical_analyzer.py`):** This script continuously downloads 15-minute event data files from GDELT and places them as individual CSVs into a staging directory (`data/pass1_output`).
+2.  **Consumer (`graph_builder.py`):** This script runs in parallel, monitoring the staging directory. As new CSV files appear, it immediately processes them, converts the events into nodes and relationships, and loads them into a graph database (Neo4j or a compatible alternative like Memgraph).
+
+This decoupled architecture allows for robust, continuous data ingestion.
 
 ## Setup
 
-To get this project up and running on your local machine, follow these steps:
+To get this project up and running, follow these steps:
 
-1.  **Clone the repository:**
+1.  **Clone the Repository:**
     ```bash
     git clone https://github.com/RatnaAnimesh/predictive-analysis.git
     cd predictive-analysis
     ```
 
-2.  **Create and activate a virtual environment:**
-    It's highly recommended to use a virtual environment to manage project dependencies.
+2.  **Set up Graph Database:**
+    A graph database compatible with the Neo4j Bolt protocol is required. The easiest way to get started is with the official Neo4j Docker container:
+    ```bash
+    docker run \
+        --name neo4j-geopred \
+        -p 7474:7474 -p 7687:7687 \
+        -d \
+        -e NEO4J_AUTH=neo4j/password \
+        --rm \
+        neo4j:latest
+    ```
+    This will start a Neo4j instance with the username `neo4j` and password `password`.
+
+3.  **Configure Environment Variables (Optional):**
+    The application is configured via `config.py`. For security and portability, you can override the database credentials by setting environment variables:
+    ```bash
+    export NEO4J_URI="bolt://localhost:7687"
+    export NEO4J_USER="neo4j"
+    export NEO4J_PASSWORD="password"
+    ```
+
+4.  **Create and Activate Virtual Environment:**
     ```bash
     python3 -m venv geo_venv
     source geo_venv/bin/activate
     ```
 
-3.  **Install dependencies:**
-    Install the required Python packages.
+5.  **Install Dependencies:**
     ```bash
-    pip install pandas numpy nltk gdeltdoc tqdm lxml spacy
-    ```
-
-4.  **Download NLP Models:**
-    The project uses NLTK for sentiment and spaCy for entity recognition.
-    ```bash
-    python -c "import nltk; nltk.download('vader_lexicon')"
-    python -m spacy download en_core_web_sm
+    pip install pandas tqdm watchdog neo4j SPARQLWrapper
     ```
 
 ## Usage
 
-The project now operates in a two-pass architecture to build the historical baseline, followed by the online anomaly detection.
+The pipeline is designed to be run as parallel processes.
 
-### Phase 1: Discovery (Pass 1)
+### Step 1: Populate Foundational Data (One-Time Setup)
 
-This phase processes all historical GDELT data to discover and log every entity mention. This is a long-running but fast, non-degrading process.
+First, populate the graph with a canonical list of countries from DBpedia. This provides a clean, foundational layer for your graph.
+```bash
+python populate_graph_from_dbpedia.py
+```
 
-1.  **Run the Pass 1 discovery script:**
-    This will create a large `discovered_entities.csv` file containing raw entity data.
-    ```bash
-    python historical_analyzer.py
-    ```
+### Step 2: Start the Graph Builder (Consumer)
 
-### Phase 2: Analysis (Pass 2)
+In a terminal window, start the graph builder. It will begin watching the output directory for new files to process.
+```bash
+python graph_builder.py
+```
 
-This phase runs *after* Pass 1 is complete. It analyzes the raw log file to build the final statistical baseline.
+### Step 3: Start the Historical Analyzer (Producer)
 
-1.  **Run the Pass 2 analysis script:**
-    This reads the `discovered_entities.csv` and generates the final `model_state.json`.
-    ```bash
-    python build_model_state.py
-    ```
+In a *separate* terminal window, start the historical data analyzer. It will begin downloading GDELT data from 2015 to the present and feeding it to the graph builder.
+```bash
+python historical_analyzer.py
+```
+You will see both terminals processing data. The analyzer will download data, and the builder will ingest it into the graph.
 
-### Phase 3: Online Anomaly Detection
+### Step 4: Explore the Graph
 
-After building the `model_state.json` baseline, you can run the anomaly detector to monitor current news.
+You can use the `graph_explorer.py` script to run basic queries and inspect the state of your knowledge graph.
+```bash
+# Get basic stats
+python graph_explorer.py
 
-1.  **Run the online anomaly detector:**
-    ```bash
-    python online_anomaly_detector.py
-    ```
-
-## Data Sources
-
-*   **GDELT Project:** The primary source for global news event data. The project downloads GKG 2.0 data in 15-minute intervals.
+# Clear the entire database (use with caution!)
+python graph_explorer.py --clear
+```
 
 ## Project Structure
 
 ```
 .
-├── .gitignore
-├── historical_analyzer.py      # Pass 1: Fast, non-degrading script to discover and log all entities.
-├── build_model_state.py        # Pass 2: Analyzes the log file to build the final statistical model.
-├── online_anomaly_detector.py  # Phase 3: Detects anomalies in real-time GDELT data against the baseline.
-├── discovered_entities.csv     # Output of Pass 1: A large log file of all discovered entities.
-├── model_state.json            # Output of Pass 2: The final statistical baseline.
-├── pass1_state.json            # Simple state file for resuming Pass 1.
-└── geo_venv/                   # Python virtual environment
+├── config.py                   # Centralized configuration for paths, credentials, and parameters.
+├── gdelt_utils.py              # Utility functions for downloading and parsing GDELT data.
+├── historical_analyzer.py      # The "producer": downloads GDELT data into the staging directory.
+├── graph_builder.py            # The "consumer": processes staged files and builds the graph.
+├── populate_graph_from_dbpedia.py # One-time script to enrich the graph with country data.
+├── graph_explorer.py           # A CLI tool for inspecting and querying the graph.
+├── pass1_state.json            # State file for resuming the historical_analyzer.
+└── data/
+    └── pass1_output/           # Staging directory for CSV files between the analyzer and builder.
 ```
