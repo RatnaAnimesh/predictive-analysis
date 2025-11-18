@@ -1,0 +1,7 @@
+pandas
+tqdm
+watchdog
+neo4j
+SPARQLWrapper
+yfinance
+ollama

@@ -1,122 +1,102 @@
-# Geopolitical Predictor
+# Geopolitical Analysis Co-Pilot
 
-This project implements a real-time pipeline to ingest geopolitical event data from the GDELT Project and construct a knowledge graph. This graph enables sophisticated analysis of the relationships and interactions between global actors.
+This project is a sophisticated, multi-layered data pipeline and analytical engine designed to function as a "co-pilot" for geopolitical and financial analysis. It ingests real-time global event data, fuses it with financial market data, and uses a local Large Language Model (LLM) to provide nuanced, context-aware answers to complex, natural language queries.
 
 ## Table of Contents
 
-- [Project Goals](#project-goals)
+- [Core Objective](#core-objective)
 - [Architecture](#architecture)
 - [Setup](#setup)
 - [Usage](#usage)
 - [Project Structure](#project-structure)
 
-## Project Goals
+## Core Objective
 
-The ultimate aim is to leverage the knowledge graph to achieve the following:
-
-1.  **Anomaly Detection:** Identify unusual spikes in the frequency or nature of events involving specific actors or locations.
-2.  **Predictive Analysis:** Analyze event sequences and actor interactions to forecast the probability of future events.
-3.  **Corroboration Analysis:** Assess the probability of a user-supplied hypothetical event based on historical patterns in the graph.
+The goal is to move beyond simple data retrieval and create a system that can synthesize information to answer complex, forward-looking questions. By providing a local LLM with a rich, structured, real-time "briefing" of both geopolitical events and financial data, the system can help analyze scenarios, assess risks, and explore potential second-order effects of global events.
 
 ## Architecture
 
-The project uses a real-time, producer-consumer architecture:
+The system is composed of three distinct layers:
 
-1.  **Producer (`historical_analyzer.py`):** This script continuously downloads 15-minute event data files from GDELT and places them as individual CSVs into a staging directory (`data/pass1_output`).
-2.  **Consumer (`graph_builder.py`):** This script runs in parallel, monitoring the staging directory. As new CSV files appear, it immediately processes them, converts the events into nodes and relationships, and loads them into a graph database (Neo4j or a compatible alternative like Memgraph).
+1.  **Layer 1: The GDELT Event Ingestion Engine**
+    *   A real-time, producer-consumer pipeline (`historical_analyzer.py` and `graph_builder.py`) that continuously downloads global event data from the GDELT project.
+    *   This data is processed and stored permanently in a **Graph Database** (e.g., Neo4j/Memgraph), creating a rich, interconnected knowledge graph of "who did what to whom."
 
-This decoupled architecture allows for robust, continuous data ingestion.
+2.  **Layer 2: The Financial Data Fusion Engine**
+    *   A data ingestor (`financial_data_ingestor.py`) fetches historical and daily stock price data from `yfinance`.
+    *   This quantitative data is stored locally and is designed to be fused with the qualitative, event-driven data from the knowledge graph.
+
+3.  **Layer 3: The LLM Application & Analysis Engine**
+    *   The main application (`main_app.py`, to be built) serves as the user interface and orchestrator.
+    *   It takes a user's natural language query (e.g., "What are the current risks for NVIDIA given the situation in Taiwan?").
+    *   It parses the query and intelligently fetches relevant data from both the Graph Database and the financial data files.
+    *   It formats this fused data into a detailed prompt (an "intelligence briefing").
+    *   It sends this prompt to a **locally running LLM**, which then performs the final synthesis and generates a human-readable answer.
 
 ## Setup
 
-To get this project up and running, follow these steps:
-
-1.  **Clone the Repository:**
+1.  **Local LLM:** You must have a local LLM running with an accessible API endpoint (e.g., via Ollama, LM Studio).
+2.  **Graph Database:** Set up a Neo4j or Memgraph instance, preferably using Docker.
+    ```bash
+    docker run --name neo4j-geopred -p 7474:7474 -p 7687:7687 -d -e NEO4J_AUTH=neo4j/password --rm neo4j:latest
+    ```
+3.  **Clone Repository:**
     ```bash
     git clone https://github.com/RatnaAnimesh/predictive-analysis.git
     cd predictive-analysis
     ```
-
-2.  **Set up Graph Database:**
-    A graph database compatible with the Neo4j Bolt protocol is required. The easiest way to get started is with the official Neo4j Docker container:
+4.  **Configure Environment:** The application is configured via `config.py`. You can override settings (like database credentials or the LLM endpoint) using environment variables.
+5.  **Install Dependencies:** Create and activate a virtual environment, then run:
     ```bash
-    docker run \
-        --name neo4j-geopred \
-        -p 7474:7474 -p 7687:7687 \
-        -d \
-        -e NEO4J_AUTH=neo4j/password \
-        --rm \
-        neo4j:latest
-    ```
-    This will start a Neo4j instance with the username `neo4j` and password `password`.
-
-3.  **Configure Environment Variables (Optional):**
-    The application is configured via `config.py`. For security and portability, you can override the database credentials by setting environment variables:
-    ```bash
-    export NEO4J_URI="bolt://localhost:7687"
-    export NEO4J_USER="neo4j"
-    export NEO4J_PASSWORD="password"
-    ```
-
-4.  **Create and Activate Virtual Environment:**
-    ```bash
-    python3 -m venv geo_venv
-    source geo_venv/bin/activate
-    ```
-
-5.  **Install Dependencies:**
-    ```bash
-    pip install pandas tqdm watchdog neo4j SPARQLWrapper
+    pip install -r requirements.txt 
+    # (Note: A requirements.txt file will be created for all dependencies)
     ```
 
 ## Usage
 
-The pipeline is designed to be run as parallel processes.
+The project is used in stages: Data Population, followed by Analysis.
 
-### Step 1: Populate Foundational Data (One-Time Setup)
+### Stage 1: Data Population (Run as needed)
 
-First, populate the graph with a canonical list of countries from DBpedia. This provides a clean, foundational layer for your graph.
+1.  **Populate Graph with Countries (One-Time):**
+    ```bash
+    python populate_graph_from_dbpedia.py
+    ```
+2.  **Populate Financial Data:**
+    ```bash
+    python financial_data_ingestor.py
+    ```
+3.  **Populate GDELT Event Graph:** Run these two scripts in parallel in separate terminals. The analyzer will feed data to the builder.
+    ```bash
+    # Terminal 1
+    python graph_builder.py
+    
+    # Terminal 2
+    python historical_analyzer.py
+    ```
+
+### Stage 2: Analysis (Main Application)
+
+Once the data sources are populated, you can use the main application to ask questions.
 ```bash
-python populate_graph_from_dbpedia.py
-```
-
-### Step 2: Start the Graph Builder (Consumer)
-
-In a terminal window, start the graph builder. It will begin watching the output directory for new files to process.
-```bash
-python graph_builder.py
-```
-
-### Step 3: Start the Historical Analyzer (Producer)
-
-In a *separate* terminal window, start the historical data analyzer. It will begin downloading GDELT data from 2015 to the present and feeding it to the graph builder.
-```bash
-python historical_analyzer.py
-```
-You will see both terminals processing data. The analyzer will download data, and the builder will ingest it into the graph.
-
-### Step 4: Explore the Graph
-
-You can use the `graph_explorer.py` script to run basic queries and inspect the state of your knowledge graph.
-```bash
-# Get basic stats
-python graph_explorer.py
-
-# Clear the entire database (use with caution!)
-python graph_explorer.py --clear
+# (This is the future application we will build)
+python main_app.py "Your natural language question here..."
 ```
 
 ## Project Structure
 
 ```
 .
-├── config.py                   # Centralized configuration for paths, credentials, and parameters.
-├── gdelt_utils.py              # Utility functions for downloading and parsing GDELT data.
-├── historical_analyzer.py      # The "producer": downloads GDELT data into the staging directory.
-├── graph_builder.py            # The "consumer": processes staged files and builds the graph.
-├── populate_graph_from_dbpedia.py # One-time script to enrich the graph with country data.
-├── graph_explorer.py           # A CLI tool for inspecting and querying the graph.
-├── pass1_state.json            # State file for resuming the historical_analyzer.
+├── config.py                   # Centralized configuration for all layers.
+├── gdelt_utils.py              # Utilities for the GDELT ingestion pipeline.
+├── historical_analyzer.py      # (Layer 1) Producer: downloads GDELT data.
+├── graph_builder.py            # (Layer 1) Consumer: populates the graph database.
+├── financial_data_ingestor.py  # (Layer 2) Ingests stock data from yfinance.
+├── main_app.py                 # (Layer 3) The main LLM orchestrator (to be built).
+├── graph_anomaly_detector.py   # Example of a data analysis tool.
+├── graph_explorer.py           # Utility to inspect the graph database.
+├── populate_graph_from_dbpedia.py # Utility to enrich the graph with country data.
 └── data/
-    └── pass1_output/           # Staging directory for CSV files between the analyzer and builder.
+    ├── pass1_output/           # Staging directory for GDELT CSVs.
+    └── financial_data/         # Storage for financial CSVs.
 ```
